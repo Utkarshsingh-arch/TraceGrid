@@ -1,0 +1,459 @@
+// ==============================================================================
+// TraceGrid Canonical Prisma Schema
+// Product: TraceGrid — Investigation Operations Dashboard
+// Target Database: PostgreSQL
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------------------------
+
+enum Role {
+  CASE_OFFICER
+  SUPERVISOR
+  DATA_CLERK
+  SYSTEM_ADMIN
+  READ_ONLY_REVIEWER
+}
+
+enum BiologicalSex {
+  MALE
+  FEMALE
+  NON_BINARY
+  UNKNOWN
+}
+
+enum CaseState {
+  REPORTED
+  UNDER_REVIEW
+  OPEN
+  CLOSED
+}
+
+enum TracingOutcome {
+  NOT_TRACED
+  LOCATION_REPORTED
+  LOCATED_VERIFICATION_PENDING
+  TRACED_VERIFIED
+  OTHER_OUTCOME
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AssignmentRole {
+  PRIMARY_OFFICER
+  ASSISTING_OFFICER
+  SUPERVISING_OFFICER
+}
+
+enum LeadStatus {
+  NEW
+  UNDER_REVIEW
+  ASSIGNED
+  VERIFIED
+  DISPROVED
+  INCONCLUSIVE
+  DUPLICATE
+}
+
+enum LeadSource {
+  CITIZEN_TIP
+  WITNESS_STATEMENT
+  OFFICER_PATROL
+  CCTV_REVIEW
+  SYNTHETIC_TELCO
+  SYNTHETIC_FINANCIAL
+}
+
+enum EvidenceType {
+  PHYSICAL
+  DIGITAL_IMAGE
+  CCTV_FOOTAGE
+  DOCUMENT
+  FORENSIC_REPORT
+  TRANSCRIPT
+}
+
+enum AccessClassification {
+  INTERNAL
+  RESTRICTED
+  CONFIDENTIAL
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ObservationType {
+  WITNESS_SIGHTING
+  CCTV_CONFIRMED
+  SYNTHETIC_TELCO_CELL
+  SYNTHETIC_POS_TRANSACTION
+  LAST_KNOWN_RESIDENCE
+}
+
+enum EventType {
+  CASE_CREATED
+  STATE_TRANSITION
+  OUTCOME_UPDATED
+  ASSIGNMENT_CHANGED
+  LEAD_REGISTERED
+  LEAD_VERIFIED
+  EVIDENCE_LOGGED
+  TASK_COMPLETED
+  HYPOTHESIS_GENERATED
+  NOTE_ADDED
+}
+
+// ------------------------------------------------------------------------------
+// ENTITIES
+// ------------------------------------------------------------------------------
+
+model Jurisdiction {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(32)
+  name        String   @db.VarChar(128)
+  region      String   @db.VarChar(64)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users       User[]
+  cases       InvestigationCase[]
+
+  @@index([region, isActive])
+  @@map("jurisdictions")
+}
+
+model User {
+  id              String        @id @default(uuid()) @db.Uuid
+  email           String        @unique @db.VarChar(255)
+  displayName     String        @map("display_name") @db.VarChar(128)
+  badgeNumber     String?       @map("badge_number") @db.VarChar(32)
+  passwordHash    String        @map("password_hash") @db.VarChar(255)
+  role            Role
+  jurisdictionId  String?       @map("jurisdiction_id") @db.Uuid
+  isActive        Boolean       @default(true) @map("is_active")
+  lastLoginAt     DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  jurisdiction    Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  assignments     CaseAssignment[]
+  assignedLeads   LeadSighting[]       @relation("AssignedOfficer")
+  assignedTasks   InvestigationTask[]  @relation("TaskAssignee")
+  hypotheses      SearchZoneHypothesis[] @relation("HypothesisCreator")
+  observationExclusions       ObservationExclusion[] @relation("ExclusionActor")
+  observationReconsiderations ObservationExclusion[] @relation("ReconsiderationActor")
+  caseEvents      CaseEvent[]          @relation("EventActor")
+  auditLogs       AuditLog[]           @relation("AuditActor")
+
+  @@index([role, isActive])
+  @@index([jurisdictionId])
+  @@map("users")
+}
+
+model PersonProfile {
+  id                  String        @id @default(uuid()) @db.Uuid
+  syntheticId         String        @unique @map("synthetic_id") @db.VarChar(32)
+  fullName            String        @map("full_name") @db.VarChar(128)
+  aliases             String[]      @default([])
+  estimatedAge        Int?          @map("estimated_age")
+  birthDate           DateTime?     @map("birth_date") @db.Date
+  biologicalSex       BiologicalSex @default(UNKNOWN) @map("biological_sex")
+  identifyingFeatures String?       @map("identifying_features") @db.Text
+  primaryPhotoKey     String?       @map("primary_photo_key") @db.VarChar(128)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cases               InvestigationCase[]
+
+  @@index([fullName])
+  @@map("person_profiles")
+}
+
+model InvestigationCase {
+  id               String         @id @default(uuid()) @db.Uuid
+  caseReference    String         @unique @map("case_reference") @db.VarChar(32)
+  personProfileId  String         @map("person_profile_id") @db.Uuid
+  jurisdictionId   String         @map("jurisdiction_id") @db.Uuid
+  reportedAt       DateTime       @map("reported_at") @db.Timestamptz(6)
+  missingSince     DateTime       @map("missing_since") @db.Timestamptz(6)
+  caseState        CaseState      @default(REPORTED) @map("case_state")
+  tracingOutcome   TracingOutcome @default(NOT_TRACED) @map("tracing_outcome")
+  priority         Priority       @default(MEDIUM)
+  incidentSummary  String         @map("incident_summary") @db.Text
+  lastActivityAt   DateTime       @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  closedAt         DateTime?      @map("closed_at") @db.Timestamptz(6)
+  closureReason    String?        @map("closure_reason") @db.Text
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  personProfile    PersonProfile  @relation(fields: [personProfileId], references: [id], onDelete: Restrict)
+  jurisdiction     Jurisdiction   @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+
+  assignments      CaseAssignment[]
+  leads            LeadSighting[]
+  evidence         EvidenceItem[]
+  tasks            InvestigationTask[]
+  observations     LocationObservation[]
+  hypotheses       SearchZoneHypothesis[]
+  observationExclusions ObservationExclusion[]
+  events           CaseEvent[]
+  auditLogs        AuditLog[]
+
+  @@index([jurisdictionId, caseState])
+  @@index([tracingOutcome])
+  @@index([priority])
+  @@index([lastActivityAt])
+  @@map("investigation_cases")
+}
+
+model CaseAssignment {
+  id                 String         @id @default(uuid()) @db.Uuid
+  caseId             String         @map("case_id") @db.Uuid
+  userId             String         @map("user_id") @db.Uuid
+  assignmentRole     AssignmentRole @default(PRIMARY_OFFICER) @map("assignment_role")
+  assignedAt         DateTime       @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  unassignedAt       DateTime?      @map("unassigned_at") @db.Timestamptz(6)
+  reassignmentReason String?        @map("reassignment_reason") @db.Text
+  isActive           Boolean        @default(true) @map("is_active")
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case               InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user               User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([caseId, isActive])
+  @@index([userId, isActive])
+  @@map("case_assignments")
+}
+
+model LeadSighting {
+  id                         String         @id @default(uuid()) @db.Uuid
+  leadReference              String         @unique @map("lead_reference") @db.VarChar(32)
+  caseId                     String         @map("case_id") @db.Uuid
+  sourceType                 LeadSource     @map("source_type")
+  sourceContact              String?        @map("source_contact") @db.Text
+  narrative                  String         @db.Text
+  observedAt                 DateTime?      @map("observed_at") @db.Timestamptz(6)
+  reportedAt                 DateTime       @default(now()) @map("reported_at") @db.Timestamptz(6)
+  latitude                   Float?
+  longitude                  Float?
+  locationUncertaintyMeters  Float?         @map("location_uncertainty_meters")
+  locationDescription        String?        @map("location_description") @db.Text
+  verificationStatus         LeadStatus     @default(NEW) @map("verification_status")
+  assignedUserId             String?        @map("assigned_user_id") @db.Uuid
+  findings                   String?        @db.Text
+  createdAt                  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  case                       InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  assignedUser               User?             @relation("AssignedOfficer", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  evidenceItems              EvidenceItem[]
+  tasks                      InvestigationTask[]
+  observations               LocationObservation[]
+
+  @@index([caseId, verificationStatus])
+  @@index([assignedUserId])
+  @@map("lead_sightings")
+}
+
+model EvidenceItem {
+  id                   String               @id @default(uuid()) @db.Uuid
+  evidenceReference    String               @unique @map("evidence_reference") @db.VarChar(32)
+  caseId               String               @map("case_id") @db.Uuid
+  leadId               String?              @map("lead_id") @db.Uuid
+  evidenceType         EvidenceType         @map("evidence_type")
+  title                String               @db.VarChar(128)
+  description          String               @db.Text
+  sourceProvenance     String               @map("source_provenance") @db.Text
+  recordedAt           DateTime             @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  eventTimestamp       DateTime?            @map("event_timestamp") @db.Timestamptz(6)
+  accessClassification AccessClassification @default(INTERNAL) @map("access_classification")
+  isVerified           Boolean              @default(false) @map("is_verified")
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  case                 InvestigationCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  lead                 LeadSighting?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  attachments          Attachment[]
+
+  @@index([caseId, evidenceType])
+  @@index([leadId])
+  @@map("evidence_items")
+}
+
+model Attachment {
+  id               String       @id @default(uuid()) @db.Uuid
+  evidenceItemId   String       @map("evidence_item_id") @db.Uuid
+  storageKey       String       @unique @map("storage_key") @db.VarChar(128)
+  originalFileName String       @map("original_file_name") @db.VarChar(255)
+  mimeType         String       @map("mime_type") @db.VarChar(128)
+  fileSizeBytes    BigInt       @map("file_size_bytes")
+  sha256Checksum   String       @map("sha256_checksum") @db.VarChar(64)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evidenceItem     EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceItemId])
+  @@map("attachments")
+}
+
+model InvestigationTask {
+  id             String            @id @default(uuid()) @db.Uuid
+  taskReference  String            @unique @map("task_reference") @db.VarChar(32)
+  caseId         String            @map("case_id") @db.Uuid
+  leadId         String?           @map("lead_id") @db.Uuid
+  assignedUserId String?           @map("assigned_user_id") @db.Uuid
+  title          String            @db.VarChar(128)
+  description    String            @db.Text
+  dueDate        DateTime          @map("due_date") @db.Timestamptz(6)
+  priority       Priority          @default(MEDIUM)
+  status         TaskStatus        @default(PENDING)
+  outcomeNotes   String?           @map("outcome_notes") @db.Text
+  completedAt    DateTime?         @map("completed_at") @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  case           InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  lead           LeadSighting?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedUser   User?             @relation("TaskAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([caseId, status])
+  @@index([assignedUserId, status])
+  @@index([dueDate])
+  @@map("investigation_tasks")
+}
+
+model LocationObservation {
+  id                        String            @id @default(uuid()) @db.Uuid
+  caseId                    String            @map("case_id") @db.Uuid
+  leadId                    String?           @map("lead_id") @db.Uuid
+  observationType           ObservationType   @map("observation_type")
+  sourceDescription         String            @map("source_description") @db.Text
+  latitude                  Float
+  longitude                 Float
+  locationUncertaintyMeters Float             @default(100.0) @map("location_uncertainty_meters")
+  observedAt                DateTime          @map("observed_at") @db.Timestamptz(6)
+  recordedAt                DateTime          @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  verificationStatus        LeadStatus        @default(NEW) @map("verification_status")
+  reliabilityScore          Float?            @map("reliability_score")
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case                      InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  lead                      LeadSighting?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  exclusions                ObservationExclusion[]
+
+  @@index([caseId, observedAt])
+  @@index([latitude, longitude])
+  @@map("location_observations")
+}
+
+model SearchZoneHypothesis {
+  id                        String            @id @default(uuid()) @db.Uuid
+  caseId                    String            @map("case_id") @db.Uuid
+  title                     String            @db.VarChar(128)
+  supportingObservationIds  String[]          @map("supporting_observation_ids")
+  excludedObservationIds    String[]          @default([]) @map("excluded_observation_ids")
+  geometryGeojson           Json              @map("geometry_geojson")
+  calculationMethod         String            @map("calculation_method") @db.VarChar(64)
+  assumptions               String[]
+  humanReadableRationale    String            @map("human_readable_rationale") @db.Text
+  uncertaintyRepresentation String            @map("uncertainty_representation") @db.Text
+  isActive                  Boolean           @default(true) @map("is_active")
+  createdByUserId           String            @map("created_by_user_id") @db.Uuid
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case                      InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  createdByUser             User              @relation("HypothesisCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  exclusions                ObservationExclusion[]
+
+  @@index([caseId, isActive])
+  @@map("search_zone_hypotheses")
+}
+
+model ObservationExclusion {
+  id                    String                @id @default(uuid()) @db.Uuid
+  observationId         String                @map("observation_id") @db.Uuid
+  caseId                String                @map("case_id") @db.Uuid
+  hypothesisId          String?               @map("hypothesis_id") @db.Uuid
+  reason                String                @db.Text
+  isCaseLevel           Boolean               @default(false) @map("is_case_level")
+  excludedByUserId      String                @map("excluded_by_user_id") @db.Uuid
+  excludedAt            DateTime              @default(now()) @map("excluded_at") @db.Timestamptz(6)
+  reconsideredAt        DateTime?             @map("reconsidered_at") @db.Timestamptz(6)
+  reconsideredByUserId  String?               @map("reconsidered_by_user_id") @db.Uuid
+  reconsiderationReason String?               @map("reconsideration_reason") @db.Text
+  isActive              Boolean               @default(true) @map("is_active")
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  observation           LocationObservation   @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  case                  InvestigationCase     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hypothesis            SearchZoneHypothesis? @relation(fields: [hypothesisId], references: [id], onDelete: SetNull)
+  excludedByUser        User                  @relation("ExclusionActor", fields: [excludedByUserId], references: [id], onDelete: Restrict)
+  reconsideredByUser    User?                 @relation("ReconsiderationActor", fields: [reconsideredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([caseId, isActive])
+  @@index([observationId, isActive])
+  @@index([hypothesisId])
+  @@map("observation_exclusions")
+}
+
+model CaseEvent {
+  id             String            @id @default(uuid()) @db.Uuid
+  caseId         String            @map("case_id") @db.Uuid
+  eventType      EventType         @map("event_type")
+  actorUserId    String?           @map("actor_user_id") @db.Uuid
+  eventTimestamp DateTime          @default(now()) @map("event_timestamp") @db.Timestamptz(6)
+  description    String            @db.Text
+  metadataJson   Json?             @map("metadata_json")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case           InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actorUser      User?             @relation("EventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([caseId, eventTimestamp(sort: Desc)])
+  @@map("case_events")
+}
+
+model AuditLog {
+  id               String             @id @default(uuid()) @db.Uuid
+  actorUserId      String?            @map("actor_user_id") @db.Uuid
+  action           String             @db.VarChar(64)
+  entityType       String             @map("entity_type") @db.VarChar(32)
+  entityId         String             @map("entity_id") @db.Uuid
+  caseId           String?            @map("case_id") @db.Uuid
+  previousStateJson Json?              @map("previous_state_json")
+  newStateJson     Json?              @map("new_state_json")
+  reason           String?            @db.Text
+  ipAddress        String?            @map("ip_address") @db.VarChar(45)
+  userAgent        String?            @map("user_agent") @db.Text
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actorUser        User?              @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  case             InvestigationCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([caseId])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}

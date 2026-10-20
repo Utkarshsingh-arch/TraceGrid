@@ -1,0 +1,55 @@
+{
+  "name": "tracegrid-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TraceGrid — Investigation Operations Dashboard",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm run dev --workspace=@tracegrid/api",
+    "dev:web": "npm run dev --workspace=@tracegrid/web",
+    "build": "npm run build --workspace=@tracegrid/api && npm run build --workspace=@tracegrid/web",
+    "build:api": "npm run build --workspace=@tracegrid/api",
+    "build:web": "npm run build --workspace=@tracegrid/web",
+    "start:api": "npm run start --workspace=@tracegrid/api",
+    "test:health": "node scripts/verify-health.js",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:generate": "npm run prisma:generate --workspace=@tracegrid/api",
+    "db:migrate": "npm run prisma:migrate --workspace=@tracegrid/api",
+    "db:deploy": "npm run prisma:deploy --workspace=@tracegrid/api",
+    "db:seed": "npm run prisma:seed --workspace=@tracegrid/api",
+    "test:db": "npx tsx scripts/verify-database.ts",
+    "test:api": "npx tsx scripts/test-api.ts",
+    "test:checkpoint3b": "npx tsx scripts/test-checkpoint3b.ts",
+    "test:checkpoint4a": "npx tsx scripts/test-checkpoint4a.ts",
+    "test:checkpoint4b": "npx tsx scripts/test-checkpoint4b.ts",
+    "test:checkpoint5a": "npx tsx scripts/test-checkpoint5a.ts",
+    "test:checkpoint5b": "npx tsx scripts/test-checkpoint5b.ts",
+    "test:checkpoint6a": "npx tsx scripts/test-checkpoint6a.ts",
+    "test:checkpoint6b": "npx tsx scripts/test-checkpoint6b.ts",
+    "test:checkpoint6c": "npx tsx scripts/test-checkpoint6c.ts",
+    "test:checkpoint7a": "npx tsx scripts/test-checkpoint7a.ts",
+    "test:checkpoint7b": "npx tsx scripts/test-checkpoint7b.ts",
+    "test:checkpoint7c": "npx tsx scripts/test-checkpoint7c.ts",
+    "test:backup": "npx tsx scripts/verify-backup-restore.ts",
+    "test:security": "npx tsx scripts/test-auth-gate-and-jurisdiction.ts"
+  },
+  "keywords": [
+    "investigation",
+    "case-management",
+    "operations",
+    "dashboard",
+    "tracegrid"
+  ],
+  "author": "TraceGrid Architecture Team",
+  "license": "UNLICENSED",
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "@prisma/client@6.19.3": true
+  }
+}
